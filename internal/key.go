@@ -2,7 +2,6 @@ package internal
 
 import (
 	"context"
-	"encoding/base64"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
@@ -114,12 +113,12 @@ func (r *keyResource) Create(ctx context.Context, req resource.CreateRequest, re
 		res.Diagnostics.AddError("Unable to get peer ID from public key", err.Error())
 		return
 	}
-	privRaw, err := priv.Raw()
+	privMarshal, err := crypto.MarshalPrivateKey(priv)
 	if err != nil {
 		res.Diagnostics.AddError("Unable to get raw private key", err.Error())
 		return
 	}
-	pubRaw, err := pub.Raw()
+	pubMarshal, err := crypto.MarshalPublicKey(pub)
 	if err != nil {
 		res.Diagnostics.AddError("Unable to get raw public key", err.Error())
 		return
@@ -127,8 +126,8 @@ func (r *keyResource) Create(ctx context.Context, req resource.CreateRequest, re
 
 	newState.ID = types.String{Value: peer.ToCid(peerId).String()}
 
-	newState.Private = types.String{Value: base64.StdEncoding.EncodeToString(privRaw)}
-	newState.Public = types.String{Value: base64.StdEncoding.EncodeToString(pubRaw)}
+	newState.Private = types.String{Value: crypto.ConfigEncodeKey(privMarshal)}
+	newState.Public = types.String{Value: crypto.ConfigEncodeKey(pubMarshal)}
 	newState.PeerId = types.String{Value: peerId.String()}
 
 	res.Diagnostics.Append(res.State.Set(ctx, newState)...)
