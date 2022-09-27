@@ -46,6 +46,14 @@ func (r *keyResource) Metadata(_ context.Context, req resource.MetadataRequest, 
 func (r *keyResource) GetSchema(context.Context) (tfsdk.Schema, diag.Diagnostics) {
 	return tfsdk.Schema{
 		Attributes: map[string]tfsdk.Attribute{
+			"id": {
+				Type:     types.StringType,
+				Computed: true,
+				PlanModifiers: []tfsdk.AttributePlanModifier{
+					resource.UseStateForUnknown(),
+				},
+				Description: "Unique ID of the key (CID)",
+			},
 			"type": {
 				Type:        types.StringType,
 				Required:    true,
@@ -117,7 +125,7 @@ func (r *keyResource) Create(ctx context.Context, req resource.CreateRequest, re
 		return
 	}
 
-	newState.ID = types.String{Value: peerId.String()}
+	newState.ID = types.String{Value: peer.ToCid(peerId).String()}
 
 	newState.Private = types.String{Value: base64.StdEncoding.EncodeToString(privRaw)}
 	newState.Public = types.String{Value: base64.StdEncoding.EncodeToString(pubRaw)}
