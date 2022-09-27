@@ -8,7 +8,7 @@ builds:
   flags:
     - -trimpath
   ldflags:
-    - '-s -w -X main.version={{.Version}} -X main.commit={{.Commit}}'
+    - '-s -w -X github.com/LuxChanLu/terraform-provider-libp2p/internal.BuildVersion={{.Version}} -X github.com/LuxChanLu/terraform-provider-libp2p/internal.BuildCommit=={{.Commit}}'
   goos:
     - freebsd
     - windows

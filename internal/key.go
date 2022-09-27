@@ -1,128 +1,144 @@
 package internal
 
 import (
-	"fmt"
+	"context"
+	"encoding/base64"
 
-	b64 "encoding/base64"
+	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/types"
 
-	"github.com/hashicorp/terraform/helper/schema"
-	crypto "github.com/libp2p/go-libp2p/core/crypto"
-	peer "github.com/libp2p/go-libp2p/core/peer"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
+	"github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
+type keyResource struct{}
+
+var keyTypes = []string{"RSA", "ED25519", "SECP256K1", "ECDSA"}
+
 var keyTypeMapping = map[string]int{
-	"RSA":       crypto.RSA,
-	"ED25519":   crypto.Ed25519,
-	"SECP256K1": crypto.Secp256k1,
-	"ECDSA":     crypto.ECDSA,
+	keyTypes[0]: crypto.RSA,
+	keyTypes[1]: crypto.Ed25519,
+	keyTypes[2]: crypto.Secp256k1,
+	keyTypes[3]: crypto.ECDSA,
 }
 
-func keyItem() *schema.Resource {
-	return &schema.Resource{
-		Schema: map[string]*schema.Schema{
+type keyModel struct {
+	ID      types.String `tfsdk:"id"`
+	Type    types.String `tfsdk:"type"`
+	Bits    types.Int64  `tfsdk:"bits"`
+	Private types.String `tfsdk:"private"`
+	Public  types.String `tfsdk:"public"`
+	PeerId  types.String `tfsdk:"peer_id"`
+}
+
+func NewKeyResource() resource.Resource {
+	return &keyResource{}
+}
+
+func (r *keyResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+	resp.TypeName = req.ProviderTypeName + "_key"
+}
+
+func (r *keyResource) GetSchema(context.Context) (tfsdk.Schema, diag.Diagnostics) {
+	return tfsdk.Schema{
+		Attributes: map[string]tfsdk.Attribute{
 			"type": {
-				Type:        schema.TypeString,
+				Type:        types.StringType,
 				Required:    true,
 				Description: "Key type",
-				ValidateFunc: func(v interface{}, key string) ([]string, []error) {
-					var errors []error
-					var warnings []string
-					value, ok := v.(string)
-					if !ok {
-						errors = append(errors, fmt.Errorf("Expected %s to be string", key))
-						return warnings, errors
-					}
-					_, ok = keyTypeMapping[value]
-					if !ok {
-						errors = append(errors, fmt.Errorf("Key type %s not found, available : (RSA, ED25519, SECP256K1, ECDSA)", key))
-						return warnings, errors
-					}
-					return warnings, errors
-				},
+				Validators:  []tfsdk.AttributeValidator{stringvalidator.OneOf(keyTypes...)},
 			},
 			"bits": {
-				Type:        schema.TypeInt,
+				Type:        types.Int64Type,
 				Optional:    true,
 				Description: "Bits count for RSA key",
-				ValidateFunc: func(v interface{}, key string) ([]string, []error) {
-					var errors []error
-					var warnings []string
-					value, ok := v.(int)
-					if !ok {
-						return warnings, append(errors, fmt.Errorf("Expected %s to be int", key))
-					}
-					if value <= 0 {
-						return warnings, append(errors, fmt.Errorf("Key size need to be more than 0"))
-					}
-					return warnings, errors
-				},
+				Validators:  []tfsdk.AttributeValidator{int64validator.AtLeast(1)},
 			},
 			"private": {
-				Type:        schema.TypeString,
-				Sensitive:   true,
-				Computed:    true,
+				Type:      types.StringType,
+				Sensitive: true,
+				Computed:  true,
+				PlanModifiers: []tfsdk.AttributePlanModifier{
+					resource.UseStateForUnknown(),
+				},
 				Description: "Private key encoded in base64",
 			},
 			"public": {
-				Type:        schema.TypeString,
-				Sensitive:   true,
-				Computed:    true,
+				Type:      types.StringType,
+				Sensitive: true,
+				Computed:  true,
+				PlanModifiers: []tfsdk.AttributePlanModifier{
+					resource.UseStateForUnknown(),
+				},
 				Description: "Public key encoded in base64",
 			},
-			"peerId": {
-				Type:        schema.TypeString,
-				Sensitive:   true,
-				Computed:    true,
+			"peer_id": {
+				Type:     types.StringType,
+				Computed: true,
+				PlanModifiers: []tfsdk.AttributePlanModifier{
+					resource.UseStateForUnknown(),
+				},
 				Description: "PeerID encoded in base58",
 			},
 		},
-		Create: keyCreate,
-		Read:   keyRead,
-		Update: keyUpdate,
-		Delete: keyDelete,
-		Importer: &schema.ResourceImporter{
-			State: schema.ImportStatePassthrough,
-		},
-	}
+	}, nil
 }
-func keyCreate(d *schema.ResourceData, m interface{}) error {
-	keyType := d.Get("type").(string)
-	bits := d.Get("bits").(int)
 
-	priv, pub, err := crypto.GenerateKeyPair(keyTypeMapping[keyType], bits)
+func (r *keyResource) Create(ctx context.Context, req resource.CreateRequest, res *resource.CreateResponse) {
+
+	newState := keyModel{}
+	res.Diagnostics.Append(req.Plan.Get(ctx, &newState)...)
+	if res.Diagnostics.HasError() {
+		return
+	}
+
+	priv, pub, err := crypto.GenerateKeyPair(keyTypeMapping[newState.Type.Value], int(newState.Bits.Value))
 	if err != nil {
-		return err
+		res.Diagnostics.AddError("Unable to generate key", err.Error())
+		return
 	}
 	peerId, err := peer.IDFromPublicKey(pub)
 	if err != nil {
-		return err
+		res.Diagnostics.AddError("Unable to get peer ID from public key", err.Error())
+		return
 	}
 	privRaw, err := priv.Raw()
 	if err != nil {
-		return err
+		res.Diagnostics.AddError("Unable to get raw private key", err.Error())
+		return
 	}
 	pubRaw, err := pub.Raw()
 	if err != nil {
-		return err
+		res.Diagnostics.AddError("Unable to get raw public key", err.Error())
+		return
 	}
 
-	d.SetId(peerId.String())
+	newState.ID = types.String{Value: peerId.String()}
 
-	d.Set("private", b64.StdEncoding.EncodeToString(privRaw))
-	d.Set("public", b64.StdEncoding.EncodeToString(pubRaw))
-	d.Set("peerId", peerId.String())
+	newState.Private = types.String{Value: base64.StdEncoding.EncodeToString(privRaw)}
+	newState.Public = types.String{Value: base64.StdEncoding.EncodeToString(pubRaw)}
+	newState.PeerId = types.String{Value: peerId.String()}
 
-	return keyRead(d, m)
+	res.Diagnostics.Append(res.State.Set(ctx, newState)...)
 }
 
-func keyRead(d *schema.ResourceData, m interface{}) error {
-	return nil
+func (r *keyResource) Read(context.Context, resource.ReadRequest, *resource.ReadResponse) {
+
 }
 
-func keyUpdate(d *schema.ResourceData, m interface{}) error {
-	return keyRead(d, m)
+func (r *keyResource) Update(ctx context.Context, req resource.UpdateRequest, res *resource.UpdateResponse) {
+	model := &keyModel{}
+	res.Diagnostics.Append(req.Plan.Get(ctx, model)...)
+	if res.Diagnostics.HasError() {
+		return
+	}
+	res.Diagnostics.Append(res.State.Set(ctx, model)...)
 }
 
-func keyDelete(d *schema.ResourceData, m interface{}) error {
-	return keyRead(d, m)
+func (r *keyResource) Delete(context.Context, resource.DeleteRequest, *resource.DeleteResponse) {
+
 }
