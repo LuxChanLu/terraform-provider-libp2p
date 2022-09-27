@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/LuxChanLu/terraform-provider-libp2p-keys/internal"
+	"github.com/LuxChanLu/terraform-provider-libp2p/internal"
 
 	"github.com/hashicorp/terraform/plugin"
 )

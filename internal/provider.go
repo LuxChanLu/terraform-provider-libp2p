@@ -9,7 +9,7 @@ func Provider() terraform.ResourceProvider {
 	return &schema.Provider{
 		Schema: map[string]*schema.Schema{},
 		ResourcesMap: map[string]*schema.Resource{
-			"key": keyItem(),
+			"libp2p_key": keyItem(),
 		},
 	}
 }
