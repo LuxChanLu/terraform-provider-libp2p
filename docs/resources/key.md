@@ -25,6 +25,7 @@ description: |-
 
 ### Read-Only
 
+- `id` (String) Unique ID of the key (CID)
 - `peer_id` (String) PeerID encoded in base58
 - `private` (String, Sensitive) Private key encoded in base64
 - `public` (String, Sensitive) Public key encoded in base64
